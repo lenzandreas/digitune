@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; }
+[hidden] { display: none !important; }
+</style>
+<title>Digitune</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a one-screen instrument. Stage (digit circle) on the left, control rack on the right; stacks on phones. Deliberately dark: the visuals are light drawn on night. */
+:root {
+  color-scheme: dark;
+  --ink: #0b0d1b;
+  --panel: #14172e;
+  --line: #262b50;
+  --fg: #ecebf7;
+  --muted: #9599c2;
+  --gold: #f0c46c;
+  --gold-ink: #23190a;
+  --display: 'Sora', 'Segoe UI', system-ui, sans-serif;
+  --body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+html, body { height: 100%; }
+body { background: var(--ink); color: var(--fg); font-family: var(--body); font-size: 14px; }
+.app { display: grid; grid-template-columns: minmax(0, 1fr) 320px; height: 100%; }
+.stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.overlay { position: absolute; top: 16px; left: max(16px, env(safe-area-inset-left, 0px)); right: 16px; display: flex; justify-content: space-between; gap: 12px; pointer-events: none; }
+.brand { font-family: var(--display); font-weight: 700; font-size: 20px; letter-spacing: 0.01em; }
+.numlabel { font-family: var(--mono); color: var(--muted); font-size: 13px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60vw; }
+.readout { text-align: right; font-family: var(--mono); font-size: 13px; color: var(--muted); display: grid; gap: 4px; }
+.readout b { color: var(--fg); font-weight: 600; font-size: 18px; font-family: var(--display); }
+.bigplay { position: absolute; width: 76px; height: 76px; border-radius: 50%; border: 1px solid rgba(240,196,108,0.6); background: rgba(240,196,108,0.12); color: var(--gold); display: grid; place-items: center; cursor: pointer; transform: translate(-50%, -50%); backdrop-filter: blur(4px); transition: transform .2s, background .2s; }
+.bigplay:hover { background: rgba(240,196,108,0.22); transform: translate(-50%, -50%) scale(1.05); }
+.bigplay:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.rack { background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; padding-block: 20px; padding-left: 20px; padding-right: max(20px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 18px; }
+.transport { display: flex; gap: 8px; }
+.btn { flex: 1; font: 600 14px var(--body); padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
+.btn.primary { background: var(--gold); color: var(--gold-ink); border-color: var(--gold); }
+.btn:hover { filter: brightness(1.1); }
+.group { display: grid; gap: 10px; }
+.group h2 { font: 600 11px var(--body); text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin: 0; }
+.field { display: grid; gap: 5px; }
+.field label, .check { font-size: 13px; color: var(--fg); }
+.field .hint { font-size: 12px; color: var(--muted); }
+.field .err { font-size: 12px; color: #ff9b8a; }
+select, input[type=text] { font: 14px var(--body); color: var(--fg); background: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%; min-width: 0; }
+input[type=range] { width: 100%; accent-color: var(--gold); }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.rangehead { display: flex; justify-content: space-between; font-size: 13px; }
+.rangehead span { font-family: var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.check input { accent-color: var(--gold); width: 16px; height: 16px; }
+.about { font-size: 12.5px; line-height: 1.55; color: var(--muted); border-top: 1px solid var(--line); padding-top: 14px; }
+.about p { margin: 0 0 8px; max-width: 65ch; }
+kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+@media (max-width: 820px) {
+  .app { grid-template-columns: 1fr; height: auto; }
+  .stage { height: min(112vw, 76vh); min-height: 380px; }
+  .rack { border-left: 0; border-top: 1px solid var(--line); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="stage" id="stage">
+    <canvas id="cv" aria-label="Visualization of the melody: each digit is a point on a circle"></canvas>
+    <div class="overlay">
+      <div>
+        <div class="brand">Digitune</div>
+        <div class="numlabel" id="numlabel">π = 3.14159…</div>
+      </div>
+      <div class="readout" aria-live="off">
+        <b id="chordName">–</b>
+        <span id="posLabel">digit 0 of 1000</span>
+      </div>
+    </div>
+    <button class="bigplay" id="bigplay" aria-label="Play">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
+    </button>
+  </div>
+
+  <aside class="rack">
+    <div class="transport">
+      <button class="btn primary" id="play">Play</button>
+      <button class="btn" id="restart">Restart</button>
+    </div>
+
+    <section class="group">
+      <h2>Number</h2>
+      <div class="field">
+        <label for="source">Play the digits of</label>
+        <select id="source">
+          <option value="pi">π (pi)</option>
+          <option value="e">e (Euler's number)</option>
+          <option value="phi">φ (golden ratio)</option>
+          <option value="sqrt2">√2</option>
+          <option value="sqrt3">√3</option>
+          <option value="ln2">ln 2 (natural log of 2)</option>
+          <option value="gamma">γ (Euler–Mascheroni constant)</option>
+          <option value="catalan">G (Catalan's constant)</option>
+          <option value="r7">1/7 (repeats every 6 digits)</option>
+          <option value="r97">1/97 (repeats every 96 digits)</option>
+          <option value="fib">Fibonacci numbers, written in a row</option>
+          <option value="primes">Prime numbers, written in a row</option>
+          <option value="custom">Your own number…</option>
+        </select>
+      </div>
+      <div class="field" id="customField" hidden>
+        <label for="custom">Your number</label>
+        <input type="text" id="custom" value="22/7" autocomplete="off" spellcheck="false">
+        <div class="hint">A fraction like 22/7, a decimal like 2.5, or any string of digits such as a date.</div>
+        <div class="err" id="customErr" hidden></div>
+      </div>
+      <div class="field">
+        <label for="base">Number base</label>
+        <select id="base"></select>
+        <div class="hint" id="baseHint">Base 10 uses the familiar digits 0–9.</div>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2>Melody</h2>
+      <div class="row">
+        <div class="field">
+          <label for="scale">Scale</label>
+          <select id="scale">
+            <option value="major">Major</option>
+            <option value="minor">Minor</option>
+            <option value="dorian">Dorian</option>
+            <option value="lydian">Lydian</option>
+            <option value="pentaMaj">Pentatonic</option>
+            <option value="pentaMin">Minor pentatonic</option>
+            <option value="chromatic">Chromatic</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="key">Key</label>
+          <select id="key"></select>
+        </div>
+      </div>
+      <div class="field">
+        <div class="rangehead"><label for="tempo">Tempo</label><span id="tempoVal">96 BPM</span></div>
+        <input type="range" id="tempo" min="50" max="200" value="96">
+      </div>
+      <label class="check"><input type="checkbox" id="hold" checked> Hold repeated digits as one longer note</label>
+    </section>
+
+    <section class="group">
+      <h2>Harmony</h2>
+      <label class="check"><input type="checkbox" id="chords" checked> Chords</label>
+      <label class="check"><input type="checkbox" id="bass" checked> Bass</label>
+      <div class="row">
+        <div class="field">
+          <label for="every">New chord every</label>
+          <select id="every">
+            <option value="4">4 digits</option>
+            <option value="8" selected>8 digits</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="rootMode">Chord root</label>
+          <select id="rootMode">
+            <option value="first">First digit</option>
+            <option value="common">Most frequent digit</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <div class="rangehead"><label for="vol">Volume</label><span id="volVal">80%</span></div>
+        <input type="range" id="vol" min="0" max="100" value="80">
+      </div>
+    </section>
+
+    <div class="about">
+      <p>Every digit is one note. Digit 1 is the home note of the scale, 2 the next step up, and so on; 0 sits one step below home.</p>
+      <p>Chords come only from the digits: each group of digits picks its own digit as the chord root and builds a triad in the same scale. Nothing is added that the number doesn't contain.</p>
+      <p>Press <kbd>Space</kbd> to play or pause.</p>
+    </div>
+  </aside>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* ---------- Digits: exact arithmetic with BigInt ---------- */
+const PREC = 1300;                        // decimal digits of working precision
+const SCALE = 10n ** BigInt(PREC);
+const COUNT = 1000;                       // digits to play
+
+function isqrt(n) {
+  if (n < 2n) return n;
+  let x = 1n << BigInt((n.toString(2).length >> 1) + 1);
+  for (;;) { const y = (x + n / x) >> 1n; if (y >= x) return x; x = y; }
+}
+function arctanInv(k) {
+  const X = BigInt(k), X2 = X * X;
+  let term = SCALE / X, sum = term, n = 1n, sign = -1n;
+  while (term !== 0n) { term /= X2; sum += sign * term / (2n * n + 1n); sign = -sign; n++; }
+  return sum;
+}
+// ln 2 = sum 1/(k 2^k)
+function ln2() { let s = 0n, p = SCALE, k = 1n; for (;;) { p /= 2n; const t = p / k; if (t === 0n) return s; s += t; k++; } }
+// Euler–Mascheroni constant, Brent–McMillan algorithm B1 with n = 2^10 (extra guard digits for the large terms).
+function eulerGamma() {
+  const G = 10n ** 40n, ONE = SCALE * G, n = 1024n, n2 = n * n;
+  let A = -(ln2() * G * 10n), B = ONE, U = A, V = B;
+  for (let k = 1n; ; k++) {
+    B = B * n2 / (k * k);
+    A = (A * n2 / k + B) / k;
+    U += A; V += B;
+    if (k > 4n * n && A === 0n && B === 0n) break;
+  }
+  return U * SCALE / V;
+}
+// Catalan's constant: G = (π/8) ln(2+√3) + (3/8) Σ 1/((2k+1)² C(2k,k)),  ln(2+√3) = 2 atanh(1/√3)
+function catalan() {
+  const x = isqrt(SCALE * SCALE / 3n);
+  let lnr = 0n, t = x, k = 0n;
+  while (t !== 0n) { lnr += t / (2n * k + 1n); t /= 3n; k++; }
+  lnr *= 2n;
+  const pi = 4n * (4n * arctanInv(5) - arctanInv(239));
+  let sum = 0n, c = SCALE; k = 0n;          // c = SCALE / C(2k,k)
+  while (c !== 0n) { sum += c / ((2n * k + 1n) ** 2n); k++; c = c * k * k / ((2n * k) * (2n * k - 1n)); }
+  return pi * lnr / SCALE / 8n + 3n * sum / 8n;
+}
+const CONST = {
+  pi:    { name: 'π', calc: () => 4n * (4n * arctanInv(5) - arctanInv(239)) },
+  e:     { name: 'e', calc: () => { let s = 0n, t = SCALE, k = 0n; while (t !== 0n) { s += t; k++; t /= k; } return s; } },
+  phi:   { name: 'φ', calc: () => (SCALE + isqrt(5n * SCALE * SCALE)) / 2n },
+  sqrt2: { name: '√2', calc: () => isqrt(2n * SCALE * SCALE) },
+  sqrt3: { name: '√3', calc: () => isqrt(3n * SCALE * SCALE) },
+  ln2:   { name: 'ln 2', calc: () => ln2() },
+  gamma: { name: 'γ', calc: () => eulerGamma() },
+  catalan: { name: 'G', calc: () => catalan() },
+  r7:    { name: '1/7', calc: () => SCALE / 7n },
+  r97:   { name: '1/97', calc: () => SCALE / 97n },
+};
+const constCache = {};
+
+function realToDigits(V, base) {
+  const B = BigInt(base);
+  let ip = V / SCALE, frac = V % SCALE;
+  const intD = [];
+  if (ip === 0n) intD.push(0);
+  while (ip > 0n) { intD.unshift(Number(ip % B)); ip /= B; }
+  const fracD = [];
+  while (fracD.length < COUNT - intD.length && fracD.length < COUNT) {
+    frac *= B; fracD.push(Number(frac / SCALE)); frac %= SCALE;
+    if (frac === 0n) break;                     // finite expansion: stop instead of padding zeros
+  }
+  return { intD, fracD };
+}
+function seqDigits(gen) {
+  let s = '';
+  for (const n of gen()) { s += n.toString(); if (s.length >= COUNT) break; }
+  return [...s.slice(0, COUNT)].map(Number);
+}
+function* fibGen() { let a = 1n, b = 1n; for (;;) { yield a; [a, b] = [b, a + b]; } }
+function* primeGen() { const ps = []; for (let n = 2; ; n++) { if (ps.every(p => p * p > n || n % p)) { ps.push(n); yield n; } } }
+
+const DIGCH = '0123456789AB';
+const dch = d => DIGCH[d];
+
+function parseCustom(s) {
+  s = s.trim();
+  let m;
+  if ((m = s.match(/^(\d+)\s*\/\s*(\d+)$/))) {
+    const b = BigInt(m[2]);
+    if (b === 0n) return { error: 'The bottom of the fraction can’t be 0.' };
+    return { kind: 'real', V: BigInt(m[1]) * SCALE / b, name: `${m[1]}/${m[2]}` };
+  }
+  if ((m = s.match(/^(\d*)\.(\d+)$/))) {
+    const frac = m[2].slice(0, PREC).padEnd(PREC, '0');
+    return { kind: 'real', V: BigInt(m[1] || '0') * SCALE + BigInt(frac), name: s };
+  }
+  const d = s.replace(/\D/g, '');
+  if (!d) return { error: 'Type a fraction like 22/7, a decimal like 2.5, or some digits.' };
+  return { kind: 'seq', digits: [...d.slice(0, COUNT)].map(Number), name: d.length > 14 ? d.slice(0, 14) + '…' : d };
+}
+
+/* ---------- Music ---------- */
+const SCALES = {
+  major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10], dorian: [0, 2, 3, 5, 7, 9, 10],
+  lydian: [0, 2, 4, 6, 7, 9, 11], pentaMaj: [0, 2, 4, 7, 9], pentaMin: [0, 3, 5, 7, 10],
+  chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+};
+const NOTE = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
+const mod = (a, n) => ((a % n) + n) % n;
+
+function degToMidi(deg, scale, tonic) {
+  const L = scale.length;
+  return tonic + 12 * Math.floor(deg / L) + scale[mod(deg, L)];
+}
+// Digit d -> scale degree d-1: 1 is home, 0 one step below.
+const digitMidi = d => degToMidi(d - 1, SCALES[S.scale], 60 + S.key);
+
+function chordFor(rootDigit) {
+  const sc = SCALES[S.scale], tonic = 48 + S.key;
+  const r = rootDigit - 1;
+  const degs = S.scale === 'chromatic' ? null : [r, r + 2, r + 4];
+  const midis = degs ? degs.map(g => degToMidi(g, sc, tonic))
+                     : [0, 4, 7].map(x => degToMidi(r, sc, tonic) + x);
+  const pcs = midis.map(m => mod(m, 12));
+  const voiced = pcs.map(pc => 52 + mod(pc - 52, 12));     // fold into E3..D#4
+  const bass = 40 + mod(pcs[0] - 40, 12);                   // E2..D#3
+  const third = mod(pcs[1] - pcs[0], 12), fifth = mod(pcs[2] - pcs[0], 12);
+  let q = null;
+  if (third === 4 && fifth === 7) q = ''; else if (third === 3 && fifth === 7) q = 'm';
+  else if (third === 3 && fifth === 6) q = '°'; else if (third === 4 && fifth === 8) q = '+';
+  const name = q === null ? pcs.map(p => NOTE[p]).join(' · ') : NOTE[pcs[0]] + q;
+  return { pcs: new Set(pcs), voiced, bass, name };
+}
+
+/* ---------- Audio engine ---------- */
+let A = null;
+function initAudio() {
+  if (A) return A;
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const master = ctx.createGain(); master.gain.value = S.vol;
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -16; comp.ratio.value = 3;
+  master.connect(comp).connect(ctx.destination);
+  const rev = ctx.createConvolver();
+  const len = Math.floor(ctx.sampleRate * 3.2);
+  const ir = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const data = ir.getChannelData(ch);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.8);
+  }
+  rev.buffer = ir;
+  const revGain = ctx.createGain(); revGain.gain.value = 0.32;
+  rev.connect(revGain).connect(master);
+  A = { ctx, master, rev };
+  return A;
+}
+const hz = m => 440 * Math.pow(2, (m - 69) / 12);
+
+function voice(t, dur, peak, attack, release, build, send) {
+  const { ctx, master, rev } = A;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(peak, t + attack);
+  g.gain.setTargetAtTime(peak * 0.55, t + attack, dur * 0.6);
+  g.gain.setTargetAtTime(0, t + dur, release / 4);
+  g.connect(master);
+  const s = ctx.createGain(); s.gain.value = send; g.connect(s).connect(rev);
+  const stopAt = t + dur + release + 0.1;
+  build(g).forEach(o => { o.start(t); o.stop(stopAt); });
+}
+function playMelody(t, midi, dur, accent) {
+  const f = hz(midi);
+  voice(t, dur, 0.22 * (accent ? 1.15 : 1), 0.012, 0.5, out => {
+    const { ctx } = A;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = Math.min(9000, f * 7); lp.connect(out);
+    const o1 = ctx.createOscillator(); o1.type = 'triangle'; o1.frequency.value = f; o1.connect(lp);
+    const o2 = ctx.createOscillator(); o2.type = 'sine'; o2.frequency.value = f * 2;
+    const g2 = ctx.createGain(); g2.gain.value = 0.18; o2.connect(g2).connect(lp);
+    return [o1, o2];
+  }, 0.35);
+}
+function playPad(t, midis, dur) {
+  midis.forEach(m => voice(t, dur, 0.045, 0.45, 1.2, out => {
+    const { ctx } = A;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1100; lp.Q.value = 0.4; lp.connect(out);
+    return [-7, 7].map(c => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = hz(m); o.detune.value = c; o.connect(lp); return o; });
+  }, 0.7));
+}
+function playBass(t, midi, dur) {
+  voice(t, dur, 0.26, 0.02, 0.4, out => {
+    const { ctx } = A;
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = hz(midi); o.connect(out);
+    const o2 = ctx.createOscillator(); o2.type = 'triangle'; o2.frequency.value = hz(midi) * 2;
+    const g2 = ctx.createGain(); g2.gain.value = 0.08; o2.connect(g2).connect(out);
+    return [o, o2];
+  }, 0.12);
+}
+
+/* ---------- State ---------- */
+const $ = id => document.getElementById(id);
+const S = {
+  source: 'pi', base: 10, scale: 'major', key: 0, bpm: 96, hold: true,
+  chords: true, bass: true, every: 8, rootMode: 'first', vol: 0.8,
+};
+let num = null;          // { digits, label, base }
+let playing = false, idx = 0, nextT = 0, timer = null;
+const vq = [];           // visual events, in time order
+const stepDur = () => 60 / S.bpm / 2;   // one digit = one eighth note
+
+function buildNumber() {
+  const base = S.base;
+  let src = S.source, name, kind, V, digits;
+  $('customErr').hidden = true;
+  if (src === 'custom') {
+    const p = parseCustom($('custom').value);
+    if (p.error) { $('customErr').textContent = p.error; $('customErr').hidden = false; return false; }
+    ({ kind, V, name } = p); digits = p.digits;
+  } else if (CONST[src]) {
+    kind = 'real'; name = CONST[src].name;
+    V = constCache[src] ??= CONST[src].calc();
+  } else {
+    kind = 'seq'; name = src === 'fib' ? 'Fibonacci' : 'Primes';
+    digits = seqDigits(src === 'fib' ? fibGen : primeGen);
+  }
+  const baseSel = $('base');
+  if (kind === 'real') {
+    baseSel.disabled = false;
+    const { intD, fracD } = realToDigits(V, base);
+    digits = intD.concat(fracD);
+    const sub = base === 10 ? '' : `₍${String(base).split('').map(c => '₀₁₂₃₄₅₆₇₈₉'[c]).join('')}₎`;
+    const shown = intD.map(dch).join('') + (fracD.length ? '.' + fracD.slice(0, 14).map(dch).join('') + (fracD.length > 14 ? '…' : '') : '');
+    num = { digits, label: `${name} = ${shown}${sub}`, base };
+  } else {
+    baseSel.disabled = true;
+    num = { digits, label: `${name}: ${digits.slice(0, 18).join('')}…`, base: 10 };
+  }
+  $('baseHint').textContent = kind !== 'real' ? 'Digit strings play as written, in base 10.'
+    : base === 10 ? 'Base 10 uses the familiar digits 0–9.'
+    : `Base ${base} uses digits 0–${dch(base - 1)}, so the melody has ${base} possible notes.`;
+  $('numlabel').textContent = num.label;
+  return true;
+}
+
+/* ---------- Scheduler ---------- */
+function rootDigitAt(i) {
+  const n = num.digits;
+  if (S.rootMode === 'first') return n[i];
+  const cnt = new Map(); let best = n[i], bc = 0;
+  for (let j = i; j < Math.min(n.length, i + S.every); j++) {
+    const c = (cnt.get(n[j]) || 0) + 1; cnt.set(n[j], c);
+    if (c > bc) { bc = c; best = n[j]; }
+  }
+  return best;
+}
+function scheduleStep(i, t) {
+  const n = num.digits, d = n[i], sd = stepDur();
+  const barStart = i % S.every === 0;
+  const tied = S.hold && i > 0 && n[i - 1] === d && !barStart;
+  if (!tied) {
+    let run = 1;
+    if (S.hold) while (i + run < n.length && n[i + run] === d && (i + run) % S.every !== 0) run++;
+    playMelody(t, digitMidi(d), run * sd * 0.95, barStart);
+    vq.push({ t, type: 'note', i, d, dur: run * sd });
+  } else {
+    vq.push({ t, type: 'tie', i, d });
+  }
+  if (barStart) {
+    const ch = chordFor(rootDigitAt(i));
+    const cd = Math.min(S.every, n.length - i) * sd;
+    if (S.chords) playPad(t, ch.voiced, cd);
+    if (S.bass) playBass(t, ch.bass, cd * 0.9);
+    vq.push({ t, type: 'chord', ch, root: rootDigitAt(i), on: S.chords || S.bass });
+  }
+}
+function tick() {
+  const ctx = A.ctx;
+  while (nextT < ctx.currentTime + 0.15) {
+    if (idx >= num.digits.length) { setPlaying(false); idx = 0; return; }
+    scheduleStep(idx, nextT);
+    nextT += stepDur(); idx++;
+  }
+}
+function setPlaying(on) {
+  playing = on;
+  $('play').textContent = on ? 'Pause' : 'Play';
+  $('bigplay').hidden = on;
+  clearInterval(timer);
+  if (on) {
+    initAudio(); A.ctx.resume();
+    nextT = A.ctx.currentTime + 0.08;
+    timer = setInterval(tick, 25); tick();
+  }
+}
+function restart() {
+  vq.length = 0; idx = 0; resetVisual();
+  if (!playing) setPlaying(true); else nextT = A.ctx.currentTime + 0.08;
+}
+
+/* ---------- Visualization ---------- */
+const cv = $('cv'), g = cv.getContext('2d');
+const trail = document.createElement('canvas'), tg = trail.getContext('2d');
+let W = 0, H = 0, DPR = 1, cx = 0, cy = 0, R = 0;
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let energy = [], ripples = [], curves = [], pen = null, curI = -1, curT = 0, chordVis = [];
+const hue = d => (d / num.base) * 360 + 20;
+const nodePos = d => { const a = -Math.PI / 2 + (d / num.base) * Math.PI * 2; return [cx + Math.cos(a) * R, cy + Math.sin(a) * R]; };
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  const r = cv.getBoundingClientRect();
+  W = Math.max(1, Math.round(r.width * DPR)); H = Math.max(1, Math.round(r.height * DPR));
+  cv.width = trail.width = W; cv.height = trail.height = H;
+  cx = W / 2; cy = H * 0.47;
+  R = Math.min(W * 0.36, H * 0.31);
+  const bp = $('bigplay'); bp.style.left = cx / DPR + 'px'; bp.style.top = cy / DPR + 'px';
+  resetVisual();
+}
+function ctrlPoint(a, b) {
+  if (a[0] === b[0] && a[1] === b[1]) return null;
+  const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+  return [cx + (mx - cx) * 0.22, cy + (my - cy) * 0.22];
+}
+function bez(a, c, b, t) {
+  const u = 1 - t;
+  return [u * u * a[0] + 2 * u * t * c[0] + t * t * b[0], u * u * a[1] + 2 * u * t * c[1] + t * t * b[1]];
+}
+// Draw the first fraction p of a quadratic curve (de Casteljau split), or a small loop for a repeated digit.
+function curvePath(ctx, cv_, p) {
+  const { a, c, b } = cv_;
+  ctx.beginPath();
+  if (!c) { const [x, y] = b, k = Math.hypot(x - cx, y - cy) || 1; const ox = (x - cx) / k, oy = (y - cy) / k;
+    ctx.arc(x + ox * 12 * DPR, y + oy * 12 * DPR, 12 * DPR, Math.atan2(-oy, -ox), Math.atan2(-oy, -ox) + Math.PI * 2 * p); return; }
+  const c1 = [a[0] + (c[0] - a[0]) * p, a[1] + (c[1] - a[1]) * p];
+  const e = bez(a, c, b, p);
+  ctx.moveTo(a[0], a[1]); ctx.quadraticCurveTo(c1[0], c1[1], e[0], e[1]);
+}
+function strokeCurve(ctx, cv_, p, alpha, glow) {
+  ctx.lineCap = 'round';
+  const h = hue(cv_.d);
+  if (glow) { curvePath(ctx, cv_, p); ctx.strokeStyle = `hsla(${h}, 85%, 62%, ${0.12 * alpha})`; ctx.lineWidth = 8 * DPR; ctx.stroke(); }
+  curvePath(ctx, cv_, p); ctx.strokeStyle = `hsla(${h}, 90%, 72%, ${0.85 * alpha})`; ctx.lineWidth = (glow ? 1.8 : 1) * DPR; ctx.stroke();
+}
+function resetVisual() {
+  tg.globalCompositeOperation = 'source-over';
+  tg.clearRect(0, 0, W, H);
+  energy = new Array(num.base).fill(0); ripples = []; curves = []; pen = null; curI = -1; chordVis = [];
+  // At rest, sketch the first digits so the number's shape is visible before playing.
+  previewShown = !playing;
+  if (!previewShown) return;
+  tg.globalCompositeOperation = 'lighter';
+  const n = num.digits, k = Math.min(n.length, 64);
+  for (let i = 1; i < k; i++) {
+    const a = nodePos(n[i - 1]), b = nodePos(n[i]), c = ctrlPoint(a, b);
+    if (c) strokeCurve(tg, { a, b, c, d: n[i] }, 1, 0.35, true);
+  }
+}
+// The memory layer keeps every finished curve very faintly: the number's fingerprint builds up over time.
+let previewShown = false;
+function clearMemory() { tg.globalCompositeOperation = 'source-over'; tg.clearRect(0, 0, W, H); previewShown = false; }
+function handle(ev) {
+  if (ev.type === 'note') {
+    const to = nodePos(ev.d);
+    const from = pen || to;
+    energy[ev.d] = 1;
+    if (!reduceMotion) ripples.push({ x: to[0], y: to[1], t0: ev.t, d: ev.d });
+    if (previewShown) clearMemory();
+    if (pen) curves.push({ a: from, b: to, c: ctrlPoint(from, to), t0: ev.t, t1: ev.t + Math.min(ev.dur, stepDur()) * 0.8, d: ev.d });
+    pen = to;
+    curI = ev.i; curT = ev.t;
+  } else if (ev.type === 'tie') {
+    energy[ev.d] = Math.max(energy[ev.d], 0.75); curI = ev.i; curT = ev.t;
+  } else if (ev.type === 'chord') {
+    chordVis.forEach(c => c.out ??= ev.t);
+    chordVis.push({ ...ev, t0: ev.t });
+    $('chordName').textContent = ev.on ? ev.ch.name : '–';
+  }
+}
+const ease = p => p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+const clamp01 = x => Math.max(0, Math.min(1, x));
+
+let lastNow = 0;
+function frame() {
+  const now = A ? A.ctx.currentTime : 0;
+  const dt = Math.max(0, Math.min(0.1, now - lastNow)); lastNow = now;
+  while (vq.length && vq[0].t <= now) handle(vq.shift());
+
+
+  // Background
+  g.globalCompositeOperation = 'source-over';
+  g.fillStyle = '#0b0d1b'; g.fillRect(0, 0, W, H);
+
+  // Chords: a soft polygon joining the digits whose notes belong to the chord.
+  chordVis = chordVis.filter(c => !(c.out && now - c.out > 1.5));
+  for (const c of chordVis) {
+    if (!c.on) continue;
+    const a = clamp01((now - c.t0) / 0.5) * (c.out ? 1 - clamp01((now - c.out) / 1.2) : 1);
+    if (a <= 0) continue;
+    const members = [];
+    for (let d = 0; d < num.base; d++) if (c.ch.pcs.has(mod(digitMidi(d), 12))) members.push(d);
+    const h = hue(c.root);
+    const glow = g.createRadialGradient(cx, cy, R * 0.1, cx, cy, R * 1.6);
+    glow.addColorStop(0, `hsla(${h}, 70%, 45%, ${0.16 * a})`); glow.addColorStop(1, 'hsla(0,0%,0%,0)');
+    g.fillStyle = glow; g.fillRect(0, 0, W, H);
+    if (members.length >= 2) {
+      g.beginPath();
+      members.forEach((d, k) => { const [x, y] = nodePos(d); k ? g.lineTo(x, y) : g.moveTo(x, y); });
+      g.closePath();
+      g.fillStyle = `hsla(${h}, 70%, 55%, ${0.10 * a})`; g.fill();
+      g.strokeStyle = `hsla(${h}, 80%, 70%, ${0.35 * a})`; g.lineWidth = 1 * DPR; g.stroke();
+    }
+    c.members = members; c.a = a;
+  }
+
+  // Outer ring
+  g.strokeStyle = 'rgba(149,153,194,0.14)'; g.lineWidth = 1 * DPR;
+  g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.stroke();
+
+  g.globalAlpha = previewShown ? 1 : 0.9;
+  g.drawImage(trail, 0, 0);
+  g.globalAlpha = 1;
+
+  // Recent curves glow and fade; finished ones are also stamped faintly into the memory layer.
+  g.globalCompositeOperation = 'lighter';
+  let head = null;
+  curves = curves.filter(c => {
+    const p = ease(clamp01((now - c.t0) / (c.t1 - c.t0)));
+    const age = Math.max(0, now - c.t1);
+    if (p >= 1 && !c.stamped) { tg.globalCompositeOperation = 'source-over'; strokeCurve(tg, c, 1, 0.07, false); c.stamped = true; }
+    const alpha = Math.exp(-age / 2.2);
+    if (alpha < 0.02) return false;
+    strokeCurve(g, c, p, alpha, true);
+    return true;
+  });
+  const last = curves[curves.length - 1];
+  if (last) { const p = ease(clamp01((now - last.t0) / (last.t1 - last.t0))); head = last.c ? bez(last.a, last.c, last.b, p) : last.b; }
+  g.globalCompositeOperation = 'source-over';
+
+  // Ripples
+  g.globalCompositeOperation = 'lighter';
+  ripples = ripples.filter(r => now - r.t0 < 1.4);
+  for (const r of ripples) {
+    const p = (now - r.t0) / 1.4;
+    g.strokeStyle = `hsla(${hue(r.d)}, 90%, 70%, ${0.5 * (1 - p)})`;
+    g.lineWidth = 1.5 * DPR;
+    g.beginPath(); g.arc(r.x, r.y, (10 + 60 * ease(p)) * DPR, 0, Math.PI * 2); g.stroke();
+  }
+
+  // Nodes
+  const cur = chordVis.filter(c => !c.out && c.on).pop();
+  const fontPx = Math.round(Math.max(11, Math.min(16, R / DPR / 11)) * DPR);
+  g.font = `600 ${fontPx}px ${getComputedStyle(document.body).getPropertyValue('--mono')}`;
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  for (let d = 0; d < num.base; d++) {
+    energy[d] *= Math.exp(-dt * 2.2);
+    const e = energy[d];
+    const [x, y] = nodePos(d);
+    const h = hue(d);
+    const inChord = cur && cur.members && cur.members.includes(d);
+    g.globalCompositeOperation = 'lighter';
+    if (e > 0.02) {
+      const rg = g.createRadialGradient(x, y, 0, x, y, (14 + 34 * e) * DPR);
+      rg.addColorStop(0, `hsla(${h}, 95%, 70%, ${0.55 * e})`); rg.addColorStop(1, 'hsla(0,0%,0%,0)');
+      g.fillStyle = rg; g.beginPath(); g.arc(x, y, (14 + 34 * e) * DPR, 0, Math.PI * 2); g.fill();
+    }
+    g.globalCompositeOperation = 'source-over';
+    g.fillStyle = `hsla(${h}, 75%, ${45 + 25 * e}%, ${0.55 + 0.45 * e})`;
+    g.beginPath(); g.arc(x, y, (5 + 5 * e) * DPR, 0, Math.PI * 2); g.fill();
+    if (inChord) {
+      g.strokeStyle = `hsla(${hue(cur.root)}, 85%, 75%, ${0.7 * (cur.a || 1)})`; g.lineWidth = 1.5 * DPR;
+      g.beginPath(); g.arc(x, y, 13 * DPR, 0, Math.PI * 2); g.stroke();
+    }
+    const a = -Math.PI / 2 + (d / num.base) * Math.PI * 2;
+    const lx = cx + Math.cos(a) * (R + 30 * DPR), ly = cy + Math.sin(a) * (R + 30 * DPR);
+    g.fillStyle = `rgba(236,235,247,${0.45 + 0.55 * e})`;
+    g.fillText(dch(d), lx, ly);
+  }
+
+  // Pen head
+  if (head && playing) {
+    g.globalCompositeOperation = 'lighter';
+    g.fillStyle = 'rgba(255,250,235,0.95)';
+    g.beginPath(); g.arc(head[0], head[1], 3 * DPR, 0, Math.PI * 2); g.fill();
+  }
+  g.globalCompositeOperation = 'source-over';
+
+  // Ribbon of digits along the bottom, scrolling smoothly.
+  const n = num.digits;
+  const cell = 26 * DPR, ry = H - 34 * DPR;
+  const prog = curI < 0 ? 0 : ease(clamp01((now - curT) / Math.max(0.05, stepDur() * 0.4)));
+  const f = curI < 0 ? -1 : curI - 1 + prog;
+  const span = Math.ceil(W / cell / 2) + 2;
+  g.font = `400 ${Math.round(15 * DPR)}px ${getComputedStyle(document.body).getPropertyValue('--mono')}`;
+  for (let i = Math.max(0, Math.floor(f) - span); i < Math.min(n.length, Math.ceil(f) + span); i++) {
+    const x = W / 2 + (i - f) * cell;
+    const dist = Math.abs(i - f);
+    const isCur = i === curI;
+    const al = i <= curI ? Math.max(0.12, 1 - dist / 14) : Math.max(0.08, 0.35 - dist / 40);
+    g.fillStyle = isCur ? `hsla(${hue(n[i])}, 95%, 75%, 1)` : (i <= curI ? `hsla(${hue(n[i])}, 60%, 75%, ${al})` : `rgba(149,153,194,${al})`);
+    g.font = `${isCur ? 600 : 400} ${Math.round((isCur ? 20 : 15) * DPR)}px ${getComputedStyle(document.body).getPropertyValue('--mono')}`;
+    g.fillText(dch(n[i]), x, ry);
+  }
+  $('posLabel').textContent = `digit ${Math.max(0, curI + 1)} of ${n.length}`;
+  requestAnimationFrame(frame);
+}
+
+/* ---------- Controls ---------- */
+const keySel = $('key');
+NOTE.forEach((nm, i) => keySel.add(new Option(nm, i)));
+const baseSel = $('base');
+for (let b = 2; b <= 12; b++) baseSel.add(new Option(b === 10 ? '10 (decimal)' : String(b), b));
+baseSel.value = '10';
+
+function onNumberChange() {
+  if (!buildNumber()) return;
+  vq.length = 0; idx = 0; resetVisual();
+  $('chordName').textContent = '–';
+}
+$('source').addEventListener('change', e => {
+  S.source = e.target.value; $('customField').hidden = S.source !== 'custom'; onNumberChange();
+});
+let ct; $('custom').addEventListener('input', () => { clearTimeout(ct); ct = setTimeout(onNumberChange, 350); });
+baseSel.addEventListener('change', e => { S.base = +e.target.value; onNumberChange(); });
+$('scale').addEventListener('change', e => { S.scale = e.target.value; });
+keySel.addEventListener('change', e => { S.key = +e.target.value; });
+$('tempo').addEventListener('input', e => { S.bpm = +e.target.value; $('tempoVal').textContent = S.bpm + ' BPM'; });
+$('hold').addEventListener('change', e => { S.hold = e.target.checked; });
+$('chords').addEventListener('change', e => { S.chords = e.target.checked; });
+$('bass').addEventListener('change', e => { S.bass = e.target.checked; });
+$('every').addEventListener('change', e => { S.every = +e.target.value; });
+$('rootMode').addEventListener('change', e => { S.rootMode = e.target.value; });
+$('vol').addEventListener('input', e => { S.vol = e.target.value / 100; $('volVal').textContent = e.target.value + '%'; if (A) A.master.gain.setTargetAtTime(S.vol, A.ctx.currentTime, 0.05); });
+$('play').addEventListener('click', () => setPlaying(!playing));
+$('bigplay').addEventListener('click', () => setPlaying(true));
+$('restart').addEventListener('click', restart);
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !/INPUT|SELECT|TEXTAREA|BUTTON/.test(document.activeElement.tagName)) { e.preventDefault(); setPlaying(!playing); }
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden && playing) setPlaying(false); });
+
+buildNumber();
+new ResizeObserver(resize).observe(cv);
+resize();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
