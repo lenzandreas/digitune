@@ -21,7 +21,7 @@ Open `index.html` in any modern browser (desktop, tablet or phone) and press **P
 
 π, e, φ, √2, √3, ln 2, the Euler–Mascheroni constant γ, Catalan's constant, 1/7, 1/97, the Fibonacci numbers and the primes written in a row, or your own input (a fraction like `22/7`, a decimal like `2.5`, or any digit string).
 
-All constants are computed exactly in the browser with `BigInt` arithmetic (1000 digits each, verified against mpmath). Real numbers can be played in any base from 2 to 12.
+All constants are computed exactly in the browser with `BigInt` arithmetic (10,000 digits each, verified against mpmath; γ takes about two seconds, the others are near-instant). Real numbers can be played in any base from 2 to 12.
 
 ## Controls
 
