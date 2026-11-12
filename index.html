@@ -152,6 +152,8 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
         <input type="range" id="tempo" min="50" max="200" value="96">
       </div>
       <label class="check"><input type="checkbox" id="hold" checked> Hold repeated digits as one longer note</label>
+      <label class="check"><input type="checkbox" id="smooth" checked> Smooth melody (move to the nearest octave)</label>
+      <label class="check"><input type="checkbox" id="phrasing" checked> Phrasing and dynamics</label>
     </section>
 
     <section class="group">
@@ -181,7 +183,8 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
     </section>
 
     <div class="about">
-      <p>Every digit is one note. Digit 1 is the home note of the scale, 2 the next step up, and so on; 0 sits one step below home.</p>
+      <p>Every digit is one note. Digit 1 is the home note of the scale, 2 the next step up, and so on; 0 sits one step below home. With smooth melody on, each note keeps its name but moves to the octave closest to the previous note.</p>
+      <p>Phrasing accents the start of each group, lets each phrase swell and settle, and plays larger digits a little louder and brighter.</p>
       <p>Chords come only from the digits: each group of digits picks its own digit as the chord root and builds a triad in the same scale. Nothing is added that the number doesn't contain.</p>
       <p>Press <kbd>Space</kbd> to play or pause.</p>
     </div>
@@ -304,6 +307,34 @@ function degToMidi(deg, scale, tonic) {
 // Digit d -> scale degree d-1: 1 is home, 0 one step below.
 const digitMidi = d => degToMidi(d - 1, SCALES[S.scale], 60 + S.key);
 
+// Smooth melody: keep each digit's note name but pick the octave closest to the previous note,
+// with a gentle pull toward the middle of the range so the line never drifts away.
+const MEL_LO = 55, MEL_HI = 86, MEL_MID = 69;
+let lastMel = null;
+function melodyMidi(d) {
+  const m = digitMidi(d);
+  if (!S.smooth || lastMel === null) return (lastMel = m);
+  let best = m, cost = Infinity;
+  for (let k = -3; k <= 3; k++) {
+    const c = m + 12 * k;
+    if (c < MEL_LO || c > MEL_HI) continue;
+    const x = Math.abs(c - lastMel) + 0.3 * Math.abs(c - MEL_MID);
+    if (x < cost) { cost = x; best = c; }
+  }
+  return (lastMel = best);
+}
+
+// Phrasing: loudness from the beat position, an arc over each phrase, and the digit's own size.
+function velocityFor(i, d) {
+  if (!S.phrasing) return 1;
+  const L = S.every, pos = i % L;
+  const beat = pos === 0 ? 1.18 : (pos === L / 2 ? 1.06 : (pos % 2 ? 0.9 : 1));
+  const arc = 0.9 + 0.16 * Math.sin(Math.PI * (pos + 0.5) / L);
+  const end = pos === L - 1 ? 0.82 : 1;
+  const size = 0.82 + 0.32 * (d / Math.max(1, num.base - 1));
+  return beat * arc * end * size;
+}
+
 function chordFor(rootDigit) {
   const sc = SCALES[S.scale], tonic = 48 + S.key;
   const r = rootDigit - 1;
@@ -357,11 +388,12 @@ function voice(t, dur, peak, attack, release, build, send) {
   const stopAt = t + dur + release + 0.1;
   build(g).forEach(o => { o.start(t); o.stop(stopAt); });
 }
-function playMelody(t, midi, dur, accent) {
+function playMelody(t, midi, dur, vel) {
   const f = hz(midi);
-  voice(t, dur, 0.22 * (accent ? 1.15 : 1), 0.012, 0.5, out => {
+  voice(t, dur, 0.21 * vel, 0.012, 0.5, out => {
     const { ctx } = A;
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = Math.min(9000, f * 7); lp.connect(out);
+    // Louder notes are also a little brighter, as on a real instrument.
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = Math.min(9000, f * (3 + 4.5 * vel)); lp.connect(out);
     const o1 = ctx.createOscillator(); o1.type = 'triangle'; o1.frequency.value = f; o1.connect(lp);
     const o2 = ctx.createOscillator(); o2.type = 'sine'; o2.frequency.value = f * 2;
     const g2 = ctx.createGain(); g2.gain.value = 0.18; o2.connect(g2).connect(lp);
@@ -389,7 +421,7 @@ function playBass(t, midi, dur) {
 const $ = id => document.getElementById(id);
 const S = {
   source: 'pi', base: 10, scale: 'major', key: 0, bpm: 96, hold: true,
-  chords: true, bass: true, every: 8, rootMode: 'first', vol: 0.8,
+  chords: true, bass: true, every: 8, rootMode: 'first', vol: 0.8, smooth: true, phrasing: true,
 };
 let num = null;          // { digits, label, base }
 let playing = false, idx = 0, nextT = 0, timer = null;
@@ -448,8 +480,10 @@ function scheduleStep(i, t) {
   if (!tied) {
     let run = 1;
     if (S.hold) while (i + run < n.length && n[i + run] === d && (i + run) % S.every !== 0) run++;
-    playMelody(t, digitMidi(d), run * sd * 0.95, barStart);
-    vq.push({ t, type: 'note', i, d, dur: run * sd });
+    const vel = velocityFor(i, d);
+    const endsPhrase = S.phrasing && (i + run) % S.every === 0;
+    playMelody(t, melodyMidi(d), run * sd * (endsPhrase ? 0.8 : 0.95), vel);
+    vq.push({ t, type: 'note', i, d, dur: run * sd, vel });
   } else {
     vq.push({ t, type: 'tie', i, d });
   }
@@ -481,7 +515,7 @@ function setPlaying(on) {
   }
 }
 function restart() {
-  vq.length = 0; idx = 0; resetVisual();
+  vq.length = 0; idx = 0; lastMel = null; resetVisual();
   if (!playing) setPlaying(true); else nextT = A.ctx.currentTime + 0.08;
 }
 
@@ -550,8 +584,8 @@ function handle(ev) {
   if (ev.type === 'note') {
     const to = nodePos(ev.d);
     const from = pen || to;
-    energy[ev.d] = 1;
-    if (!reduceMotion) ripples.push({ x: to[0], y: to[1], t0: ev.t, d: ev.d });
+    energy[ev.d] = Math.min(1, 0.55 + 0.45 * ev.vel);
+    if (!reduceMotion) ripples.push({ x: to[0], y: to[1], t0: ev.t, d: ev.d, v: ev.vel });
     if (previewShown) clearMemory();
     if (pen) curves.push({ a: from, b: to, c: ctrlPoint(from, to), t0: ev.t, t1: ev.t + Math.min(ev.dur, stepDur()) * 0.8, d: ev.d });
     pen = to;
@@ -631,7 +665,7 @@ function frame() {
     const p = (now - r.t0) / 1.4;
     g.strokeStyle = `hsla(${hue(r.d)}, 90%, 70%, ${0.5 * (1 - p)})`;
     g.lineWidth = 1.5 * DPR;
-    g.beginPath(); g.arc(r.x, r.y, (10 + 60 * ease(p)) * DPR, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.arc(r.x, r.y, (10 + 60 * r.v * ease(p)) * DPR, 0, Math.PI * 2); g.stroke();
   }
 
   // Nodes
@@ -701,7 +735,7 @@ baseSel.value = '10';
 
 function onNumberChange() {
   if (!buildNumber()) return;
-  vq.length = 0; idx = 0; resetVisual();
+  vq.length = 0; idx = 0; lastMel = null; resetVisual();
   $('chordName').textContent = '–';
 }
 $('source').addEventListener('change', e => {
@@ -713,6 +747,8 @@ $('scale').addEventListener('change', e => { S.scale = e.target.value; });
 keySel.addEventListener('change', e => { S.key = +e.target.value; });
 $('tempo').addEventListener('input', e => { S.bpm = +e.target.value; $('tempoVal').textContent = S.bpm + ' BPM'; });
 $('hold').addEventListener('change', e => { S.hold = e.target.checked; });
+$('smooth').addEventListener('change', e => { S.smooth = e.target.checked; });
+$('phrasing').addEventListener('change', e => { S.phrasing = e.target.checked; });
 $('chords').addEventListener('change', e => { S.chords = e.target.checked; });
 $('bass').addEventListener('change', e => { S.bass = e.target.checked; });
 $('every').addEventListener('change', e => { S.every = +e.target.value; });
