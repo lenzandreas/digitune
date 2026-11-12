@@ -59,8 +59,9 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 .rangehead span { font-family: var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
 .check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .check input { accent-color: var(--gold); width: 16px; height: 16px; }
-.about { font-size: 12.5px; line-height: 1.55; color: var(--muted); border-top: 1px solid var(--line); padding-top: 14px; }
-.about p { margin: 0 0 8px; max-width: 65ch; }
+.about { font-size: 12.5px; line-height: 1.55; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; }
+.about summary { cursor: pointer; color: var(--fg); font-size: 13px; }
+.about ul { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 6px; max-width: 65ch; }
 kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
 @media (max-width: 820px) {
   .app { grid-template-columns: 1fr; height: auto; }
@@ -80,7 +81,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
       </div>
       <div class="readout" aria-live="off">
         <b id="chordName">–</b>
-        <span id="posLabel">digit 0 of 1000</span>
+        <span id="posLabel">digit 0 of 10000</span>
       </div>
     </div>
     <button class="bigplay" id="bigplay" aria-label="Play">
@@ -117,7 +118,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
       <div class="field" id="customField" hidden>
         <label for="custom">Your number</label>
         <input type="text" id="custom" value="22/7" autocomplete="off" spellcheck="false">
-        <div class="hint">A fraction like 22/7, a decimal like 2.5, or any string of digits such as a date.</div>
+        <div class="hint">A fraction (22/7), a decimal (2.5) or any digits.</div>
         <div class="err" id="customErr" hidden></div>
       </div>
       <div class="field">
@@ -151,7 +152,9 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
         <div class="rangehead"><label for="tempo">Tempo</label><span id="tempoVal">96 BPM</span></div>
         <input type="range" id="tempo" min="50" max="200" value="96">
       </div>
-      <label class="check"><input type="checkbox" id="hold" checked> Hold repeated digits as one longer note</label>
+      <label class="check"><input type="checkbox" id="hold" checked> Hold repeated digits</label>
+      <label class="check"><input type="checkbox" id="smooth" checked> Smooth melody</label>
+      <label class="check"><input type="checkbox" id="phrasing" checked> Phrasing and dynamics</label>
     </section>
 
     <section class="group">
@@ -180,11 +183,16 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
       </div>
     </section>
 
-    <div class="about">
-      <p>Every digit is one note. Digit 1 is the home note of the scale, 2 the next step up, and so on; 0 sits one step below home.</p>
-      <p>Chords come only from the digits: each group of digits picks its own digit as the chord root and builds a triad in the same scale. Nothing is added that the number doesn't contain.</p>
-      <p>Press <kbd>Space</kbd> to play or pause.</p>
-    </div>
+    <details class="about">
+      <summary>How it works</summary>
+      <ul>
+        <li>Each digit is a note: 1 is the home note, 0 one step below.</li>
+        <li>Smooth melody moves each note to the nearest octave.</li>
+        <li>Phrasing makes group starts and larger digits louder.</li>
+        <li>Chords are built on a digit from each group.</li>
+        <li><kbd>Space</kbd> plays or pauses.</li>
+      </ul>
+    </details>
   </aside>
 </div>
 
@@ -193,9 +201,9 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
 'use strict';
 
 /* ---------- Digits: exact arithmetic with BigInt ---------- */
-const PREC = 1300;                        // decimal digits of working precision
+const COUNT = 10000;                      // digits to play
+const PREC = Math.ceil(COUNT * Math.log10(12)) + 60;   // decimal working precision, enough for base 12
 const SCALE = 10n ** BigInt(PREC);
-const COUNT = 1000;                       // digits to play
 
 function isqrt(n) {
   if (n < 2n) return n;
@@ -212,8 +220,10 @@ function arctanInv(k) {
 function ln2() { let s = 0n, p = SCALE, k = 1n; for (;;) { p /= 2n; const t = p / k; if (t === 0n) return s; s += t; k++; } }
 // Euler–Mascheroni constant, Brent–McMillan algorithm B1 with n = 2^10 (extra guard digits for the large terms).
 function eulerGamma() {
-  const G = 10n ** 40n, ONE = SCALE * G, n = 1024n, n2 = n * n;
-  let A = -(ln2() * G * 10n), B = ONE, U = A, V = B;
+  // n = 2^p with e^(-4n) below the working precision
+  const p = Math.ceil(Math.log2(PREC * Math.LN10 / 4)) + 1;
+  const G = 10n ** 40n, ONE = SCALE * G, n = 1n << BigInt(p), n2 = n * n;
+  let A = -(ln2() * G * BigInt(p)), B = ONE, U = A, V = B;
   for (let k = 1n; ; k++) {
     B = B * n2 / (k * k);
     A = (A * n2 / k + B) / k;
@@ -250,15 +260,13 @@ const constCache = {};
 function realToDigits(V, base) {
   const B = BigInt(base);
   let ip = V / SCALE, frac = V % SCALE;
-  const intD = [];
-  if (ip === 0n) intD.push(0);
-  while (ip > 0n) { intD.unshift(Number(ip % B)); ip /= B; }
-  const fracD = [];
-  while (fracD.length < COUNT - intD.length && fracD.length < COUNT) {
-    frac *= B; fracD.push(Number(frac / SCALE)); frac %= SCALE;
-    if (frac === 0n) break;                     // finite expansion: stop instead of padding zeros
-  }
-  return { intD, fracD };
+  const intD = [...ip.toString(base)].map(c => parseInt(c, base));
+  // All fractional digits at once: floor(frac * base^M / SCALE), written in base `base`.
+  const M = Math.max(1, COUNT - intD.length);
+  const scaled = frac * B ** BigInt(M);
+  let str = (scaled / SCALE).toString(base).padStart(M, '0');
+  if (scaled % SCALE === 0n) str = str.replace(/0+$/, '');   // finite expansion: no padding zeros
+  return { intD, fracD: [...str].map(c => parseInt(c, base)) };
 }
 function seqDigits(gen) {
   let s = '';
@@ -303,6 +311,34 @@ function degToMidi(deg, scale, tonic) {
 }
 // Digit d -> scale degree d-1: 1 is home, 0 one step below.
 const digitMidi = d => degToMidi(d - 1, SCALES[S.scale], 60 + S.key);
+
+// Smooth melody: keep each digit's note name but pick the octave closest to the previous note,
+// with a gentle pull toward the middle of the range so the line never drifts away.
+const MEL_LO = 55, MEL_HI = 86, MEL_MID = 69;
+let lastMel = null;
+function melodyMidi(d) {
+  const m = digitMidi(d);
+  if (!S.smooth || lastMel === null) return (lastMel = m);
+  let best = m, cost = Infinity;
+  for (let k = -3; k <= 3; k++) {
+    const c = m + 12 * k;
+    if (c < MEL_LO || c > MEL_HI) continue;
+    const x = Math.abs(c - lastMel) + 0.3 * Math.abs(c - MEL_MID);
+    if (x < cost) { cost = x; best = c; }
+  }
+  return (lastMel = best);
+}
+
+// Phrasing: loudness from the beat position, an arc over each phrase, and the digit's own size.
+function velocityFor(i, d) {
+  if (!S.phrasing) return 1;
+  const L = S.every, pos = i % L;
+  const beat = pos === 0 ? 1.18 : (pos === L / 2 ? 1.06 : (pos % 2 ? 0.9 : 1));
+  const arc = 0.9 + 0.16 * Math.sin(Math.PI * (pos + 0.5) / L);
+  const end = pos === L - 1 ? 0.82 : 1;
+  const size = 0.82 + 0.32 * (d / Math.max(1, num.base - 1));
+  return beat * arc * end * size;
+}
 
 function chordFor(rootDigit) {
   const sc = SCALES[S.scale], tonic = 48 + S.key;
@@ -357,11 +393,12 @@ function voice(t, dur, peak, attack, release, build, send) {
   const stopAt = t + dur + release + 0.1;
   build(g).forEach(o => { o.start(t); o.stop(stopAt); });
 }
-function playMelody(t, midi, dur, accent) {
+function playMelody(t, midi, dur, vel) {
   const f = hz(midi);
-  voice(t, dur, 0.22 * (accent ? 1.15 : 1), 0.012, 0.5, out => {
+  voice(t, dur, 0.21 * vel, 0.012, 0.5, out => {
     const { ctx } = A;
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = Math.min(9000, f * 7); lp.connect(out);
+    // Louder notes are also a little brighter, as on a real instrument.
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = Math.min(9000, f * (3 + 4.5 * vel)); lp.connect(out);
     const o1 = ctx.createOscillator(); o1.type = 'triangle'; o1.frequency.value = f; o1.connect(lp);
     const o2 = ctx.createOscillator(); o2.type = 'sine'; o2.frequency.value = f * 2;
     const g2 = ctx.createGain(); g2.gain.value = 0.18; o2.connect(g2).connect(lp);
@@ -389,7 +426,7 @@ function playBass(t, midi, dur) {
 const $ = id => document.getElementById(id);
 const S = {
   source: 'pi', base: 10, scale: 'major', key: 0, bpm: 96, hold: true,
-  chords: true, bass: true, every: 8, rootMode: 'first', vol: 0.8,
+  chords: true, bass: true, every: 8, rootMode: 'first', vol: 0.8, smooth: true, phrasing: true,
 };
 let num = null;          // { digits, label, base }
 let playing = false, idx = 0, nextT = 0, timer = null;
@@ -448,8 +485,10 @@ function scheduleStep(i, t) {
   if (!tied) {
     let run = 1;
     if (S.hold) while (i + run < n.length && n[i + run] === d && (i + run) % S.every !== 0) run++;
-    playMelody(t, digitMidi(d), run * sd * 0.95, barStart);
-    vq.push({ t, type: 'note', i, d, dur: run * sd });
+    const vel = velocityFor(i, d);
+    const endsPhrase = S.phrasing && (i + run) % S.every === 0;
+    playMelody(t, melodyMidi(d), run * sd * (endsPhrase ? 0.8 : 0.95), vel);
+    vq.push({ t, type: 'note', i, d, dur: run * sd, vel });
   } else {
     vq.push({ t, type: 'tie', i, d });
   }
@@ -481,7 +520,7 @@ function setPlaying(on) {
   }
 }
 function restart() {
-  vq.length = 0; idx = 0; resetVisual();
+  vq.length = 0; idx = 0; lastMel = null; resetVisual();
   if (!playing) setPlaying(true); else nextT = A.ctx.currentTime + 0.08;
 }
 
@@ -550,8 +589,8 @@ function handle(ev) {
   if (ev.type === 'note') {
     const to = nodePos(ev.d);
     const from = pen || to;
-    energy[ev.d] = 1;
-    if (!reduceMotion) ripples.push({ x: to[0], y: to[1], t0: ev.t, d: ev.d });
+    energy[ev.d] = Math.min(1, 0.55 + 0.45 * ev.vel);
+    if (!reduceMotion) ripples.push({ x: to[0], y: to[1], t0: ev.t, d: ev.d, v: ev.vel });
     if (previewShown) clearMemory();
     if (pen) curves.push({ a: from, b: to, c: ctrlPoint(from, to), t0: ev.t, t1: ev.t + Math.min(ev.dur, stepDur()) * 0.8, d: ev.d });
     pen = to;
@@ -631,7 +670,7 @@ function frame() {
     const p = (now - r.t0) / 1.4;
     g.strokeStyle = `hsla(${hue(r.d)}, 90%, 70%, ${0.5 * (1 - p)})`;
     g.lineWidth = 1.5 * DPR;
-    g.beginPath(); g.arc(r.x, r.y, (10 + 60 * ease(p)) * DPR, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.arc(r.x, r.y, (10 + 60 * r.v * ease(p)) * DPR, 0, Math.PI * 2); g.stroke();
   }
 
   // Nodes
@@ -700,8 +739,13 @@ for (let b = 2; b <= 12; b++) baseSel.add(new Option(b === 10 ? '10 (decimal)' :
 baseSel.value = '10';
 
 function onNumberChange() {
+  // Some constants (γ) take a moment at 10,000 digits: show that, then compute after the next paint.
+  if (S.source in CONST && !constCache[S.source]) $('numlabel').textContent = 'Computing 10,000 digits…';
+  setTimeout(rebuildNumber, 30);
+}
+function rebuildNumber() {
   if (!buildNumber()) return;
-  vq.length = 0; idx = 0; resetVisual();
+  vq.length = 0; idx = 0; lastMel = null; resetVisual();
   $('chordName').textContent = '–';
 }
 $('source').addEventListener('change', e => {
@@ -713,6 +757,8 @@ $('scale').addEventListener('change', e => { S.scale = e.target.value; });
 keySel.addEventListener('change', e => { S.key = +e.target.value; });
 $('tempo').addEventListener('input', e => { S.bpm = +e.target.value; $('tempoVal').textContent = S.bpm + ' BPM'; });
 $('hold').addEventListener('change', e => { S.hold = e.target.checked; });
+$('smooth').addEventListener('change', e => { S.smooth = e.target.checked; });
+$('phrasing').addEventListener('change', e => { S.phrasing = e.target.checked; });
 $('chords').addEventListener('change', e => { S.chords = e.target.checked; });
 $('bass').addEventListener('change', e => { S.bass = e.target.checked; });
 $('every').addEventListener('change', e => { S.every = +e.target.value; });
