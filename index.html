@@ -62,6 +62,18 @@ input[type=range] { width: 100%; accent-color: var(--gold); }
 .about { font-size: 12.5px; line-height: 1.55; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; }
 .about summary { cursor: pointer; color: var(--fg); font-size: 13px; }
 .about ul { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 6px; max-width: 65ch; }
+.drumgrid { display: grid; gap: 5px; }
+.drumrow { display: grid; grid-template-columns: 44px 1fr; align-items: center; gap: 8px; }
+.drumrow > span { font-size: 12px; color: var(--muted); }
+.steps { display: grid; grid-template-columns: repeat(var(--n, 16), 1fr); gap: 2px; }
+.steps i { height: 12px; border-radius: 3px; background: rgba(149,153,194,0.12); transition: background .08s; }
+.steps i:nth-child(4n+1) { box-shadow: inset 0 -2px 0 rgba(149,153,194,0.18); }
+.steps[data-n="8"] i:nth-child(4n+1) { box-shadow: none; }
+.steps[data-n="8"] i:nth-child(2n+1) { box-shadow: inset 0 -2px 0 rgba(149,153,194,0.18); }
+.steps i.on { background: rgba(240,196,108,0.45); }
+.steps i.now { background: rgba(236,235,247,0.28); }
+.steps i.on.now { background: var(--gold); }
+.drumgrid[data-off] { opacity: 0.4; }
 kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
 @media (max-width: 820px) {
   .app { grid-template-columns: 1fr; height: auto; }
@@ -183,6 +195,28 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
       </div>
     </section>
 
+    <section class="group">
+      <h2>Drums</h2>
+      <div class="field">
+        <label for="drums">Rhythm</label>
+        <select id="drums">
+          <option value="0">Off</option>
+          <option value="8">8 steps per bar</option>
+          <option value="16" selected>16 steps per bar</option>
+        </select>
+        <div class="hint">Each bar, digits set how many kick, snare and hi-hat hits are spread evenly over the steps.</div>
+      </div>
+      <div class="drumgrid" id="drumgrid" aria-label="Current drum pattern">
+        <div class="drumrow"><span>Kick</span><div class="steps" id="stepsK"></div></div>
+        <div class="drumrow"><span>Snare</span><div class="steps" id="stepsS"></div></div>
+        <div class="drumrow"><span>Hi-hat</span><div class="steps" id="stepsH"></div></div>
+      </div>
+      <div class="field">
+        <div class="rangehead"><label for="drumVol">Drum level</label><span id="drumVolVal">70%</span></div>
+        <input type="range" id="drumVol" min="0" max="100" value="70">
+      </div>
+    </section>
+
     <details class="about">
       <summary>How it works</summary>
       <ul>
@@ -190,6 +224,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
         <li>Smooth melody moves each note to the nearest octave.</li>
         <li>Phrasing makes group starts and larger digits louder.</li>
         <li>Chords are built on a digit from each group.</li>
+        <li>Drums: every 8 digits, three digits set how many kick, snare and hi-hat hits are spread as evenly as possible over the bar (a Euclidean rhythm).</li>
         <li><kbd>Space</kbd> plays or pauses.</li>
       </ul>
     </details>
@@ -357,6 +392,34 @@ function chordFor(rootDigit) {
   return { pcs: new Set(pcs), voiced, bass, name };
 }
 
+/* ---------- Drums: Euclidean rhythms ---------- */
+// k hits spread as evenly as possible over n steps (the Bresenham form of Bjorklund's algorithm),
+// starting on step 0, then rotated right by `rot` steps.
+function euclid(k, n, rot = 0) {
+  k = Math.max(0, Math.min(n, k));
+  const p = [];
+  for (let j = 0; j < n; j++) p.push(k > 0 && (j * k) % n < k);
+  return p.map((_, j) => p[mod(j - rot, n)]);
+}
+const DRUM_BAR = 8;      // digits per drum bar (8 eighth notes = 4 beats)
+let patCache = null;
+// One bar's pattern from the digits that open it: the 1st sets the kick count, the 2nd the snare, the 3rd the hi-hat.
+function drumPattern(barStart) {
+  const steps = S.drums;
+  if (patCache && patCache.num === num && patCache.bar === barStart && patCache.steps === steps) return patCache;
+  const n = num.digits, at = k => n[Math.min(n.length - 1, barStart + k)];
+  const q = d => d / Math.max(1, num.base - 1);           // digit as 0..1, in any base
+  const big = steps === 16;
+  const kN = 2 + Math.round(q(at(0)) * (big ? 3 : 2));   // 16: 2-5 kicks, 8: 2-4
+  const sN = 1 + Math.round(q(at(1)) * (big ? 2 : 1));                 // 16: 1-3 snares, 8: 1-2
+  const hN = (big ? 4 : 3) + Math.round(q(at(2)) * (big ? 10 : 5));   // 16: 4-14 hats, 8: 3-8
+  // Kick starts on the downbeat; snare is shifted half a gap so it falls between kicks (a backbeat for 2 hits).
+  const K = euclid(kN, steps);
+  const Sn = euclid(sN, steps, Math.round(steps / (2 * sN)));
+  const Hh = euclid(hN, steps);
+  return (patCache = { num, bar: barStart, steps, K, S: Sn, H: Hh, counts: [kN, sN, hN] });
+}
+
 /* ---------- Audio engine ---------- */
 let A = null;
 function initAudio() {
@@ -376,7 +439,13 @@ function initAudio() {
   rev.buffer = ir;
   const revGain = ctx.createGain(); revGain.gain.value = 0.32;
   rev.connect(revGain).connect(master);
-  A = { ctx, master, rev };
+  const noise = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.5), ctx.sampleRate);
+  const nd = noise.getChannelData(0);
+  for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  const drumBus = ctx.createGain(); drumBus.gain.value = S.drumVol;
+  drumBus.connect(master);
+  const drumRev = ctx.createGain(); drumRev.gain.value = 0.12; drumBus.connect(drumRev).connect(rev);
+  A = { ctx, master, rev, noise, drumBus };
   return A;
 }
 const hz = m => 440 * Math.pow(2, (m - 69) / 12);
@@ -422,11 +491,52 @@ function playBass(t, midi, dur) {
   }, 0.12);
 }
 
+// Synthesized drums: no samples, only oscillators and filtered noise.
+function env(t, peak, decay) {
+  const g = A.ctx.createGain();
+  g.gain.setValueAtTime(peak, t);
+  g.gain.exponentialRampToValueAtTime(0.0008, t + decay);
+  g.connect(A.drumBus);
+  return g;
+}
+function noiseSrc(t, dur) {
+  const src = A.ctx.createBufferSource(); src.buffer = A.noise;
+  src.start(t, Math.random() * 0.3); src.stop(t + dur);
+  return src;
+}
+function playKick(t, v) {
+  const { ctx } = A;
+  const o = ctx.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(150, t);
+  o.frequency.exponentialRampToValueAtTime(44, t + 0.12);
+  o.connect(env(t, 0.95 * v, 0.42));
+  o.start(t); o.stop(t + 0.5);
+  // A tiny click for definition on small speakers.
+  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2500;
+  noiseSrc(t, 0.02).connect(hp).connect(env(t, 0.12 * v, 0.012));
+}
+function playSnare(t, v) {
+  const { ctx } = A;
+  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1200;
+  const bp = ctx.createBiquadFilter(); bp.type = 'peaking'; bp.frequency.value = 3500; bp.gain.value = 4;
+  noiseSrc(t, 0.25).connect(hp).connect(bp).connect(env(t, 0.38 * v, 0.2));
+  const o = ctx.createOscillator(); o.type = 'triangle';
+  o.frequency.setValueAtTime(200, t); o.frequency.exponentialRampToValueAtTime(150, t + 0.08);
+  o.connect(env(t, 0.32 * v, 0.1));
+  o.start(t); o.stop(t + 0.15);
+}
+function playHat(t, v) {
+  const { ctx } = A;
+  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 7500;
+  noiseSrc(t, 0.08).connect(hp).connect(env(t, 0.16 * v, 0.045 + 0.02 * v));
+}
+
 /* ---------- State ---------- */
 const $ = id => document.getElementById(id);
 const S = {
   source: 'pi', base: 10, scale: 'major', key: 0, bpm: 96, hold: true,
   chords: true, bass: true, every: 8, rootMode: 'first', vol: 0.8, smooth: true, phrasing: true,
+  drums: 16, drumVol: 0.7,
 };
 let num = null;          // { digits, label, base }
 let playing = false, idx = 0, nextT = 0, timer = null;
@@ -499,6 +609,21 @@ function scheduleStep(i, t) {
     if (S.bass) playBass(t, ch.bass, cd * 0.9);
     vq.push({ t, type: 'chord', ch, root: rootDigitAt(i), on: S.chords || S.bass });
   }
+  if (S.drums) scheduleDrums(i, t, sd);
+}
+function scheduleDrums(i, t, sd) {
+  const barPos = i % DRUM_BAR, pat = drumPattern(i - barPos);
+  const per = pat.steps / DRUM_BAR, beat = pat.steps / 4;
+  for (let sub = 0; sub < per; sub++) {
+    const s = barPos * per + sub, ts = t + sub * sd / per;
+    const k = pat.K[s], sn = pat.S[s], h = pat.H[s];
+    const kv = s === 0 ? 1 : 0.82;
+    if (k) playKick(ts, kv);
+    if (sn) playSnare(ts, s % beat === 0 ? 0.95 : 0.75);
+    // Hi-hats lean on the beat and are a little softer when the kick or snare already speaks.
+    if (h) playHat(ts, (s % beat === 0 ? 0.8 : s % (beat / 2 || 1) === 0 ? 0.6 : 0.42) * (k || sn ? 0.75 : 1));
+    vq.push({ t: ts, type: 'dstep', s, pat, k: k ? kv : 0, sn });
+  }
 }
 function tick() {
   const ctx = A.ctx;
@@ -520,7 +645,7 @@ function setPlaying(on) {
   }
 }
 function restart() {
-  vq.length = 0; idx = 0; lastMel = null; resetVisual();
+  vq.length = 0; idx = 0; lastMel = null; resetVisual(); previewPattern();
   if (!playing) setPlaying(true); else nextT = A.ctx.currentTime + 0.08;
 }
 
@@ -530,6 +655,7 @@ const trail = document.createElement('canvas'), tg = trail.getContext('2d');
 let W = 0, H = 0, DPR = 1, cx = 0, cy = 0, R = 0;
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let energy = [], ripples = [], curves = [], pen = null, curI = -1, curT = 0, chordVis = [];
+let pulses = [], ringGlow = 0;
 const hue = d => (d / num.base) * 360 + 20;
 const nodePos = d => { const a = -Math.PI / 2 + (d / num.base) * Math.PI * 2; return [cx + Math.cos(a) * R, cy + Math.sin(a) * R]; };
 
@@ -572,6 +698,7 @@ function resetVisual() {
   tg.globalCompositeOperation = 'source-over';
   tg.clearRect(0, 0, W, H);
   energy = new Array(num.base).fill(0); ripples = []; curves = []; pen = null; curI = -1; chordVis = [];
+  pulses = []; ringGlow = 0;
   // At rest, sketch the first digits so the number's shape is visible before playing.
   previewShown = !playing;
   if (!previewShown) return;
@@ -597,6 +724,10 @@ function handle(ev) {
     curI = ev.i; curT = ev.t;
   } else if (ev.type === 'tie') {
     energy[ev.d] = Math.max(energy[ev.d], 0.75); curI = ev.i; curT = ev.t;
+  } else if (ev.type === 'dstep') {
+    showStep(ev.pat, ev.s);
+    if (ev.k) { ringGlow = Math.max(ringGlow, ev.k); if (!reduceMotion) pulses.push({ t0: ev.t, v: ev.k }); }
+    else if (ev.sn) ringGlow = Math.max(ringGlow, 0.45);
   } else if (ev.type === 'chord') {
     chordVis.forEach(c => c.out ??= ev.t);
     chordVis.push({ ...ev, t0: ev.t });
@@ -639,8 +770,28 @@ function frame() {
     c.members = members; c.a = a;
   }
 
-  // Outer ring
-  g.strokeStyle = 'rgba(149,153,194,0.14)'; g.lineWidth = 1 * DPR;
+  // Kick pulse: a soft flash in the middle and a ring that swells outward from the circle.
+  ringGlow *= Math.exp(-dt * 7);
+  pulses = pulses.filter(p => now - p.t0 < 0.9);
+  if (pulses.length) {
+    g.globalCompositeOperation = 'lighter';
+    for (const p of pulses) {
+      const u = clamp01((now - p.t0) / 0.9), f = 1 - u;
+      if (u < 0.4) {
+        const fl = g.createRadialGradient(cx, cy, 0, cx, cy, R);
+        fl.addColorStop(0, `rgba(240,196,108,${0.07 * p.v * (1 - u / 0.4)})`); fl.addColorStop(1, 'rgba(240,196,108,0)');
+        g.fillStyle = fl; g.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+      }
+      g.strokeStyle = `rgba(240,196,108,${0.32 * p.v * f * f})`;
+      g.lineWidth = (0.6 + 2.4 * f) * DPR;
+      g.beginPath(); g.arc(cx, cy, R * (1 + 0.32 * ease(u)), 0, Math.PI * 2); g.stroke();
+    }
+    g.globalCompositeOperation = 'source-over';
+  }
+
+  // Outer ring, brightening with each kick and snare
+  g.strokeStyle = `rgba(${Math.round(149 + 91 * ringGlow)},${Math.round(153 + 43 * ringGlow)},${Math.round(194 - 86 * ringGlow)},${0.14 + 0.4 * ringGlow})`;
+  g.lineWidth = (1 + 1.5 * ringGlow) * DPR;
   g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.stroke();
 
   g.globalAlpha = previewShown ? 1 : 0.9;
@@ -738,6 +889,34 @@ const baseSel = $('base');
 for (let b = 2; b <= 12; b++) baseSel.add(new Option(b === 10 ? '10 (decimal)' : String(b), b));
 baseSel.value = '10';
 
+// Drum grid in the rack: shows the current bar's pattern and the step being played.
+const rows = [$('stepsK'), $('stepsS'), $('stepsH')];
+let shownPat = null, shownStep = -1;
+function showPattern(pat) {
+  shownPat = pat; shownStep = -1;
+  $('drumgrid').toggleAttribute('data-off', !pat);
+  const n = pat ? pat.steps : 16, lines = pat ? [pat.K, pat.S, pat.H] : [[], [], []];
+  rows.forEach((row, r) => {
+    row.style.setProperty('--n', n); row.dataset.n = n;
+    if (row.children.length !== n) row.replaceChildren(...Array.from({ length: n }, () => document.createElement('i')));
+    [...row.children].forEach((c, j) => { c.className = lines[r][j] ? 'on' : ''; });
+  });
+  $('drumgrid').setAttribute('aria-label', pat
+    ? `Current drum pattern: ${pat.counts.map((c, r) => `${c} ${['kick', 'snare', 'hi-hat'][r]}${c === 1 ? '' : 's'}`).join(', ')} over ${n} steps`
+    : 'Drums are off');
+}
+function showStep(pat, s) {
+  if (pat !== shownPat) showPattern(pat);
+  rows.forEach(row => {
+    if (shownStep >= 0) row.children[shownStep]?.classList.remove('now');
+    row.children[s]?.classList.add('now');
+  });
+  shownStep = s;
+}
+function previewPattern() {
+  showPattern(S.drums && num ? drumPattern(idx - idx % DRUM_BAR) : null);
+}
+
 function onNumberChange() {
   // Some constants (γ) take a moment at 10,000 digits: show that, then compute after the next paint.
   if (S.source in CONST && !constCache[S.source]) $('numlabel').textContent = 'Computing 10,000 digits…';
@@ -747,6 +926,7 @@ function rebuildNumber() {
   if (!buildNumber()) return;
   vq.length = 0; idx = 0; lastMel = null; resetVisual();
   $('chordName').textContent = '–';
+  previewPattern();
 }
 $('source').addEventListener('change', e => {
   S.source = e.target.value; $('customField').hidden = S.source !== 'custom'; onNumberChange();
@@ -764,6 +944,12 @@ $('bass').addEventListener('change', e => { S.bass = e.target.checked; });
 $('every').addEventListener('change', e => { S.every = +e.target.value; });
 $('rootMode').addEventListener('change', e => { S.rootMode = e.target.value; });
 $('vol').addEventListener('input', e => { S.vol = e.target.value / 100; $('volVal').textContent = e.target.value + '%'; if (A) A.master.gain.setTargetAtTime(S.vol, A.ctx.currentTime, 0.05); });
+$('drums').addEventListener('change', e => {
+  S.drums = +e.target.value;
+  for (let j = vq.length - 1; j >= 0; j--) if (vq[j].type === 'dstep') vq.splice(j, 1);
+  previewPattern();
+});
+$('drumVol').addEventListener('input', e => { S.drumVol = e.target.value / 100; $('drumVolVal').textContent = e.target.value + '%'; if (A) A.drumBus.gain.setTargetAtTime(S.drumVol, A.ctx.currentTime, 0.05); });
 $('play').addEventListener('click', () => setPlaying(!playing));
 $('bigplay').addEventListener('click', () => setPlaying(true));
 $('restart').addEventListener('click', restart);
@@ -773,6 +959,7 @@ document.addEventListener('keydown', e => {
 document.addEventListener('visibilitychange', () => { if (document.hidden && playing) setPlaying(false); });
 
 buildNumber();
+previewPattern();
 new ResizeObserver(resize).observe(cv);
 resize();
 requestAnimationFrame(frame);
