@@ -15,7 +15,8 @@ Open `index.html` in any modern browser (desktop, tablet or phone) and press **P
 - **Phrasing and dynamics:** the first note of each group is accented, each phrase swells and settles, its last note is shorter and softer, and larger digits play a little louder and brighter. All loudness comes from the digit and its position; no notes are added.
 - **Rhythm:** notes are even; a repeated digit (like the `999999` in π) is held as one longer note instead of being replayed (can be switched off).
 - **Harmony:** every 4 or 8 digits, a digit of the group (the first one, or the most frequent one) becomes the chord root. The chord is a triad of the same scale, played as a soft pad with a bass note. Nothing is added that the number doesn't contain.
-- **Visualization:** each note draws a glowing curve between positions on a circle of digits. The current chord lights up as a shape joining its notes, and every finished curve leaves a faint trace, so a fingerprint of the number builds up over time.
+- **Drums:** every 8 digits (one bar of four beats), the bar's first three digits set how many kick, snare and hi-hat hits it has, and each count is spread as evenly as possible over 8 or 16 steps (a Euclidean rhythm, as found in many traditional rhythms: 3 hits over 8 steps is the tresillo). The kick starts on the downbeat and the snare sits halfway between hits, so even random digits give a steady groove. All drums are synthesized with Web Audio (oscillators and filtered noise, no samples) and follow the tempo.
+- **Visualization:** each note draws a glowing curve between positions on a circle of digits. The current chord lights up as a shape joining its notes, and every finished curve leaves a faint trace, so a fingerprint of the number builds up over time. Each kick sends a soft pulse out from the circle, and the drum grid in the controls shows the current bar's pattern as it plays.
 
 ## Numbers
 
@@ -25,4 +26,4 @@ All constants are computed exactly in the browser with `BigInt` arithmetic (10,0
 
 ## Controls
 
-Scale (major, minor, Dorian, Lydian, pentatonic, minor pentatonic, chromatic), key, tempo, hold repeats, smooth melody, phrasing, chords, bass, chord rhythm, chord root rule and volume. Press <kbd>Space</kbd> to play or pause.
+Scale (major, minor, Dorian, Lydian, pentatonic, minor pentatonic, chromatic), key, tempo, hold repeats, smooth melody, phrasing, chords, bass, chord rhythm, chord root rule, volume, drum steps (off, 8 or 16) and drum level. Press <kbd>Space</kbd> to play or pause.
